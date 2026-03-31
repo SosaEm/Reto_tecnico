@@ -14,7 +14,7 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 from scripts.generate_transactions import generate_transactions
-
+from database_utils import load_data_to_mysql
 
 # Configuration
 TRANSACTIONS_FOLDER = Path("./transactions")
@@ -127,7 +127,7 @@ def detect_suspicious_transactions(df_clean):
     df_work['is_suspicious'] = False
 
     # Unusually high amounts
-    limit = 5000 
+    limit = 200 
     df_work.loc[df_work['amount'] > limit, 'is_suspicious'] = True
 
     # Multiple failed attempts
@@ -182,6 +182,10 @@ def process_batch(raw_file):
             normal_file = PROCESSED_FOLDER / f"processed_{timestamp}.csv"
             df_normal.to_csv(normal_file, index=False)
             print(f"Saved normal transactions to: {normal_file}")
+
+        # Loading data to Data Warehouse
+        print("Sending to Data Warehouse (MySQL)...")
+        load_data_to_mysql(df_normal)
 
         if len(df_suspicious) > 0:
             suspicious_file = SUSPICIOUS_FOLDER / f"suspicious_{timestamp}.csv"
