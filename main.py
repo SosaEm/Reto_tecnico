@@ -120,32 +120,30 @@ def detect_suspicious_transactions(df_clean):
     if df_clean.empty:
         return df_clean, df_clean
 
-    # 1. Aseguramos que trabajamos sobre una copia
+    
     df_work = df_clean.copy()
     
-    # 2. Inicializamos la columna de sospecha
+    # Detecting Suspicious Transactions
     df_work['is_suspicious'] = False
 
-    # REGLA A: Montos altos (Usando máscara booleana)
-    # Evita el error 'unhashable' usando .loc
+    # Unusually high amounts
     limit = 5000 
     df_work.loc[df_work['amount'] > limit, 'is_suspicious'] = True
 
-    # REGLA B: Intentos fallidos (Si existe la columna status)
+    # Multiple failed attempts
     if 'status' in df_work.columns and 'user_id' in df_work.columns:
-        # Contamos cuántos 'declined' tiene cada usuario en este batch
+        # Number of declined transactions
         df_work['declined_count'] = df_work[df_work['status'] == 'declined'].groupby('user_id')['transaction_id'].transform('count')
         df_work['declined_count'] = df_work['declined_count'].fillna(0)
         
-        # Marcamos como sospechoso si tiene más de 2 fallos
+        # Flag transactions with more than 2 declined attempts
         df_work.loc[df_work['declined_count'] > 2, 'is_suspicious'] = True
 
-    # 3. Separar los DataFrames
-    # Usamos una copia para evitar el "SettingWithCopyWarning"
+    # Split dataframes
     suspicious_df = df_work[df_work['is_suspicious'] == True].copy()
     normal_df = df_work[df_work['is_suspicious'] == False].copy()
 
-    # 4. Limpiar columnas auxiliares antes de devolver
+    # Drop unnecessary columns
     columns_to_drop = ['is_suspicious', 'declined_count']
     suspicious_df = suspicious_df.drop(columns=columns_to_drop, errors='ignore')
     normal_df = normal_df.drop(columns=columns_to_drop, errors='ignore')
