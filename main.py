@@ -71,14 +71,35 @@ def clean_data(df):
     # ... your cleaning logic ...
     # return df_clean
     df_clean = df.copy()
-    df_clean.drop_duplicates(inplace=True)  # Remove duplicates
 
+    # 1. Drop duplicates and remove rows with missing settlement date. Invalid transactions
+    df_clean = df_clean.drop_duplicates()
+    df_clean.dropna(subset=['settlement_date'], inplace=True) 
+    # 2. N/A and NULLS
+    df_clean['amount'] = pd.to_numeric(df_clean['amount'], errors='coerce')
+    df_clean = df_clean.dropna(subset=['transaction_id', 'user_id']) # IDs are required
+    df_clean['amount'] = df_clean['amount'].fillna(df_clean['amount'].median())
 
+    # 3. Formatting
+    if 'timestamp' in df_clean.columns:
+        df_clean['timestamp'] = pd.to_datetime(df_clean['timestamp'])
+    
+    if 'country_code' in df_clean.columns:
+        df_clean['country_code'] = df_clean['country_code'].str.upper().str.strip()
 
-    raise NotImplementedError("clean_data() function needs to be implemented")
+    # 4. Outliers (IQR)
+    Q1 = df_clean['amount'].quantile(0.25)
+    Q3 = df_clean['amount'].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = 0 
+    upper_bound = Q3 + 1.5 * IQR
+    
+    # Format amount
+    df_clean['amount'] = df_clean['amount'].astype(float)
 
+    return df_clean
 
-def detect_suspicious_transactions(df):
+def detect_suspicious_transactions(df_clean):
     """
     TODO: Implement fraud detection logic
 
@@ -96,15 +117,40 @@ def detect_suspicious_transactions(df):
     Returns:
         tuple: (normal_df, suspicious_df) - DataFrames split by suspicion status
     """
-    # YOUR CODE HERE
-    # Example structure:
-    # df['is_suspicious'] = False
-    # ... your detection logic ...
-    # suspicious_df = df[df['is_suspicious'] == True]
-    # normal_df = df[df['is_suspicious'] == False]
-    # return normal_df, suspicious_df
+    if df_clean.empty:
+        return df_clean, df_clean
 
-    raise NotImplementedError("detect_suspicious_transactions() function needs to be implemented")
+    # 1. Aseguramos que trabajamos sobre una copia
+    df_work = df_clean.copy()
+    
+    # 2. Inicializamos la columna de sospecha
+    df_work['is_suspicious'] = False
+
+    # REGLA A: Montos altos (Usando máscara booleana)
+    # Evita el error 'unhashable' usando .loc
+    limit = 5000 
+    df_work.loc[df_work['amount'] > limit, 'is_suspicious'] = True
+
+    # REGLA B: Intentos fallidos (Si existe la columna status)
+    if 'status' in df_work.columns and 'user_id' in df_work.columns:
+        # Contamos cuántos 'declined' tiene cada usuario en este batch
+        df_work['declined_count'] = df_work[df_work['status'] == 'declined'].groupby('user_id')['transaction_id'].transform('count')
+        df_work['declined_count'] = df_work['declined_count'].fillna(0)
+        
+        # Marcamos como sospechoso si tiene más de 2 fallos
+        df_work.loc[df_work['declined_count'] > 2, 'is_suspicious'] = True
+
+    # 3. Separar los DataFrames
+    # Usamos una copia para evitar el "SettingWithCopyWarning"
+    suspicious_df = df_work[df_work['is_suspicious'] == True].copy()
+    normal_df = df_work[df_work['is_suspicious'] == False].copy()
+
+    # 4. Limpiar columnas auxiliares antes de devolver
+    columns_to_drop = ['is_suspicious', 'declined_count']
+    suspicious_df = suspicious_df.drop(columns=columns_to_drop, errors='ignore')
+    normal_df = normal_df.drop(columns=columns_to_drop, errors='ignore')
+
+    return normal_df, suspicious_df
 
 
 def process_batch(raw_file):
